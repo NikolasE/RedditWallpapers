@@ -1,6 +1,6 @@
 #! /usr/bin/python3
-from __future__ import annotations
 
+from __future__ import annotations # allow usage of undefined class as type hint (@see ImgSize.is_similar)
 import praw
 from praw.models import Submission
 
@@ -8,7 +8,8 @@ import re
 import os
 import requests
 import random
-from wallpaper_secrets import client_id, client_secret, user_password, user_name
+
+from RedditWallpaper.wallpaper_secrets import client_id, client_secret, user_password, user_name
 
 
 class RedditWallpapers:
@@ -35,14 +36,13 @@ class RedditWallpapers:
         t = title.translate(title.maketrans(x_chars, 'x'*len(x_chars))).replace(' ', '')
         loc = re.findall("\d+x\d+", t) 
         if not loc:
-            print("can't parse size from %s" % title)
+            # print("can't parse size from %s" % title)
             return None
         try:
             w, h = map(int, loc[0].split('x'))
         except IndexError as e:
-            print("can't parse size from %s" % title)
+            # print("can't parse size from %s" % title)
             return None
-            
         return RedditWallpapers.ImgSize(w, h)
 
     @staticmethod
@@ -65,7 +65,6 @@ class RedditWallpapers:
             os.mkdir(wallpaper_directory_path)
         except FileExistsError:
             pass
-
         return wallpaper_directory_path
 
     def get_new_earth_images(self):
@@ -91,24 +90,67 @@ class RedditWallpapers:
                     print("%s already exists, not downloading again" % file_path)
 
     
-    def install_random_wallpaper(self) -> str:
+    def _get_installed_wallpapers(self) -> List[str]:
         elements = os.listdir(self.wp_dir)
         files = list()
-        print(elements)
         for f in elements:
-            abs_path = os.path.join(self.wp_dir, f)
+            abs_path = os.path.join(self.wp_dir, f) # also check if it's an image?
             if os.path.isfile(abs_path):
                 files.append(abs_path)
+        return files
+
+    @staticmethod
+    def _get_current_wallpaper():
+        current_wallpaper = os.popen("gsettings get org.gnome.desktop.background picture-uri").read().strip().strip("'")
+        prefix = 'file://'
+        assert current_wallpaper.startswith(prefix)
+        current_wallpaper = current_wallpaper[len(prefix):]
+        return current_wallpaper
+
+    def install_random_wallpaper(self) -> str:
+        current_wallpaper = self._get_current_wallpaper()
+        files = self._get_installed_wallpapers()
+        try:
+            files.remove(current_wallpaper)
+        except ValueError:
+            print("Current wallpaper is %s, which is not in our wallpaper directory at %s" % (current_wallpaper, self.wp_dir))
+
         if not files:
-            print("Found no images in %s, can't update wallpaper" % self.wp_dir)
+            print("Found no new images in %s, can't update wallpaper" % self.wp_dir)
+            return False
+
         new_img = random.choice(files)
         os.system("gsettings set org.gnome.desktop.background picture-uri file://%s" % new_img)
 
-# install_random_wallpaper(wp_dir)
+        if not self._get_current_wallpaper() == new_img:
+            print("Could not activate %s as new wallpaper, THIS IS A BUG" % new_img)
+            return False
 
+        print("New wallpaper: %s" % new_img)
+        return True
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Welcome to the Reddit Wallpaper Downloader')
+    parser.add_argument("--download", action="store_true", help="Download new images from Reddit that fit to the main screen")
+    parser.add_argument("--new-wallpaper", action="store_true", help="If set, one of the already downloaded images is randomly chosen and used as wallpaper")
+    parser.add_argument("--info", action="store_true", help="Print information about stored images")
+
+    all_flag_values = parser.parse_args()
     rd = RedditWallpapers()
 
-    # rd.get_new_earth_images()
-    rd.install_random_wallpaper()
+    # check if any flag was set, print help otherwise # TODO: or select on action as default?
+    if not any(vars(all_flag_values).values()):
+        parser.print_help()
+        exit(0)
+
+    if all_flag_values.info:
+        files = rd._get_installed_wallpapers()
+        print("Images stored in %s: %i" % (rd.wp_dir, len(files)))
+
+    if all_flag_values.download:
+        rd.get_new_earth_images()
+
+    if all_flag_values.new_wallpaper:
+        rd.install_random_wallpaper()
