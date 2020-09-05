@@ -1,0 +1,4 @@
+.vscode
+tests
+__pycache__
+wallpaper_secrets.py
